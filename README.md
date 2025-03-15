@@ -1,5 +1,3 @@
-Here's the **fully formatted** `README.md` content in one copy-paste block:
-
 ````md
 # Running the Speaker Listener Environment
 
