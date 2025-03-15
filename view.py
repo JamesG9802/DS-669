@@ -1,4 +1,5 @@
 import os
+import glob
 
 import imageio
 import numpy as np
@@ -139,7 +140,24 @@ if __name__ == "__main__":
 
     # Save the gif to specified path
     gif_path = "./videos/"
+    base_filename = "{}".format(args.env)
+
     os.makedirs(gif_path, exist_ok=True)
-    imageio.mimwrite(
-        os.path.join("./videos/", "{}.gif".format(args.env)), frames, duration=10
-    )
+
+    # Find existing GIF files that match the pattern
+    existing_files = glob.glob(os.path.join(gif_path, f"{base_filename}_*.gif"))
+
+    # Determine the next iteration number
+    if existing_files:
+        existing_numbers = [
+            int(f.split("_")[-1].split(".")[0])  # Extract number from filename
+            for f in existing_files if f.split("_")[-1].split(".")[0].isdigit()
+        ]
+        next_number = max(existing_numbers) + 1 if existing_numbers else 1
+    else:
+        next_number = 1
+
+    gif_filename = f"{base_filename}_{next_number}.gif"
+    save_path = os.path.join(gif_path, gif_filename)
+
+    imageio.mimwrite(save_path, frames, duration=10)
