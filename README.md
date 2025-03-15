@@ -20,7 +20,7 @@ models/MADDPG/MADDPG_trained_agent_simple_listener.pt
 To view the trained model, run:
 
 ```sh
-python train.py -env speaker_listener
+python view.py -env speaker_listener
 ```
 
 This will load the model and save a visualization as a GIF at:
