@@ -4,6 +4,7 @@ Authors: Michael (https://github.com/mikepratt1), Nick (https://github.com/nicku
 """
 
 import os
+import glob
 
 import numpy as np
 import torch
@@ -297,8 +298,25 @@ if __name__ == "__main__":
 
     # Save the trained algorithm
     path = "./models/MADDPG"
-    filename = "MADDPG_trained_agent_{}.pt".format(args.env)
+    base_filename = "MADDPG_trained_agent_{}.pt".format(args.env)
     os.makedirs(path, exist_ok=True)
+
+    # Find existing files that match
+    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*.pt"))
+
+    # Determine the next iteration number
+    if existing_files:
+        existing_numbers = [
+            int(f.split("_")[-1].split(".")[0])  # Extract number from filename
+            for f in existing_files if f.split("_")[-1].split(".")[0].isdigit()
+        ]
+        next_number = max(existing_numbers) + 1 if existing_numbers else 1
+    else:
+        next_number = 1
+
+    # Create new filename
+    filename = f"{base_filename}_{next_number}.pt"
+
     save_path = os.path.join(path, filename)
     elite.save_checkpoint(save_path)
 
