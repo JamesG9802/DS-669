@@ -21,6 +21,8 @@ from agilerl.vector.pz_async_vec_env import AsyncPettingZooVecEnv
 
 from get_args import get_args
 
+from ernie_utils import perturb_observation, adversarial_regularization_loss
+
 if __name__ == "__main__":
     args = get_args()
 
@@ -186,6 +188,11 @@ if __name__ == "__main__":
 
             for idx_step in range(evo_steps // num_envs):
 
+                if args.perturb:
+                    state = {agent_id: perturb_observation(s, args.perturb_alpha) for agent_id, s in state.items()}
+
+                state = {agent_id: s.detach().cpu().numpy() if isinstance(s, torch.Tensor) else s for agent_id, s in state.items()}
+
                 # Get next action from agent
                 cont_actions, discrete_action = agent.get_action(
                     states=state, training=True, infos=info
@@ -230,8 +237,23 @@ if __name__ == "__main__":
                     ):
                         # Sample replay buffer
                         experiences = memory.sample(agent.batch_size)
-                        # Learn according to agent's RL algorithm
-                        agent.learn(experiences)
+
+                        adv_reg_loss = adversarial_regularization_loss(agent, state, args.perturb_alpha)
+
+                        # Manually compute policy loss
+                        policy_loss = agent.compute_policy_loss(experiences)
+
+                        # Adjust the policy loss by adding adversarial loss
+                        total_loss = policy_loss + args.lam * adv_reg_loss
+
+                        # Apply gradients manually
+                        agent.optimizer.zero_grad()
+
+                        total_loss = total_loss.detach().cpu().numpy() if isinstance(total_loss, torch.Tensor) else total_loss
+
+                        total_loss.backward()
+                        agent.optimizer.step()
+
                 # Handle num_envs > learn step; learn multiple times per step in env
                 elif (
                     len(memory) >= agent.batch_size and memory.counter > learning_delay
@@ -239,8 +261,23 @@ if __name__ == "__main__":
                     for _ in range(num_envs // agent.learn_step):
                         # Sample replay buffer
                         experiences = memory.sample(agent.batch_size)
-                        # Learn according to agent's RL algorithm
-                        agent.learn(experiences)
+                        
+                        adv_reg_loss = adversarial_regularization_loss(agent, state, args.perturb_alpha)
+
+                        # Manually compute policy loss
+                        policy_loss = agent.compute_policy_loss(experiences)
+
+                        # Adjust the policy loss by adding adversarial loss
+                        total_loss = policy_loss + args.lam * adv_reg_loss
+
+                        # Apply gradients manually
+                        agent.optimizer.zero_grad()
+
+                        if isinstance(total_loss, np.ndarray):
+                            total_loss = torch.tensor(total_loss, dtype=torch.float32)
+
+                        total_loss.backward()
+                        agent.optimizer.step()
 
                 state = next_state
 
