@@ -11,6 +11,9 @@ from agilerl.algorithms.maddpg import MADDPG
 
 from get_args import get_args
 
+from ernie_maddpg_wrapper import ERNIEAdversarialWrapper
+from ernie_model import ERNIE
+
 # Define function to return image
 def _label_with_episode_number(frame, episode_num):
     im = Image.fromarray(frame)
@@ -48,6 +51,15 @@ if __name__ == "__main__":
     elif args.env == "simple_crypto":
         env = simple_crypto_v3
     env = env.parallel_env(continuous_actions=True, render_mode="rgb_array")
+
+    if args.use_ernie:
+        # Determine observation space dimension dynamically
+        first_agent = env.possible_agents[0]
+        obs_dim = env.observation_space(first_agent).shape[0]
+        
+        ernie_model = ERNIE(obs_dim=obs_dim)  # Initialize ERNIE model
+        env = ERNIEAdversarialWrapper(env, ernie_model)
+
     env.reset()
 
     try:
@@ -72,8 +84,26 @@ if __name__ == "__main__":
     agent_ids = env.agents
 
     # Load the saved agent
-    path = "./models/MADDPG/MADDPG_trained_agent_{}.pt".format(args.env)
-    maddpg = MADDPG.load(path, device)
+    model_dir = "./models/ERNIE/"
+    if args.model_num is None:
+        # Find the latest model file if no specific number is given
+        model_pattern = f"ERNIE_trained_agent_{args.env}_*.pt"
+        model_files = glob.glob(os.path.join(model_dir, model_pattern))
+
+        if not model_files:
+            raise FileNotFoundError(f"No trained ERNIE model found for {args.env} in {model_dir}")
+
+        model_files.sort(key=os.path.getmtime, reverse=True)
+        model_path = model_files[0]  # Load the latest model
+    else:
+        # Load the specified model number
+        model_path = os.path.join(model_dir, f"ERNIE_trained_agent_{args.env}_{args.model_num}.pt")
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Specified model {model_path} does not exist.")
+
+    print(f"Loading model: {model_path}")
+    maddpg = MADDPG.load(model_path, device)
 
     # Define test loop parameters
     episodes = 10  # Number of episodes to test agent on
@@ -140,7 +170,7 @@ if __name__ == "__main__":
 
     # Save the gif to specified path
     gif_path = "./videos/"
-    base_filename = "{}".format(args.env)
+    base_filename = "ERNIE_{}".format(args.env)
 
     os.makedirs(gif_path, exist_ok=True)
 

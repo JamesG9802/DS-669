@@ -21,7 +21,8 @@ from agilerl.vector.pz_async_vec_env import AsyncPettingZooVecEnv
 
 from get_args import get_args
 
-from ernie_utils import perturb_observation, adversarial_regularization_loss
+from ernie_maddpg_wrapper import ERNIEAdversarialWrapper
+from ernie_model import ERNIE
 
 if __name__ == "__main__":
     args = get_args()
@@ -73,8 +74,17 @@ if __name__ == "__main__":
     elif args.env == "simple_crypto":
         env = simple_crypto_v3
     env = env.parallel_env(continuous_actions=True)
-    
+
+    if args.use_ernie:
+        # Determine observation space dimension dynamically
+        first_agent = env.possible_agents[0]
+        obs_dim = env.observation_space(first_agent).shape[0]
+        
+        ernie_model = ERNIE(obs_dim=obs_dim)  # Initialize ERNIE model
+        env = ERNIEAdversarialWrapper(env, ernie_model)
+
     env = AsyncPettingZooVecEnv([lambda: env for _ in range(num_envs)])
+
     env.reset()
 
     # Configure the multi-agent algo input arguments
@@ -188,11 +198,6 @@ if __name__ == "__main__":
 
             for idx_step in range(evo_steps // num_envs):
 
-                if args.perturb:
-                    state = {agent_id: perturb_observation(s, args.perturb_alpha) for agent_id, s in state.items()}
-
-                state = {agent_id: s.detach().cpu().numpy() if isinstance(s, torch.Tensor) else s for agent_id, s in state.items()}
-
                 # Get next action from agent
                 cont_actions, discrete_action = agent.get_action(
                     states=state, training=True, infos=info
@@ -237,23 +242,8 @@ if __name__ == "__main__":
                     ):
                         # Sample replay buffer
                         experiences = memory.sample(agent.batch_size)
-
-                        adv_reg_loss = adversarial_regularization_loss(agent, state, args.perturb_alpha)
-
-                        # Manually compute policy loss
-                        policy_loss = agent.compute_policy_loss(experiences)
-
-                        # Adjust the policy loss by adding adversarial loss
-                        total_loss = policy_loss + args.lam * adv_reg_loss
-
-                        # Apply gradients manually
-                        agent.optimizer.zero_grad()
-
-                        total_loss = total_loss.detach().cpu().numpy() if isinstance(total_loss, torch.Tensor) else total_loss
-
-                        total_loss.backward()
-                        agent.optimizer.step()
-
+                        # Learn according to agent's RL algorithm
+                        agent.learn(experiences)
                 # Handle num_envs > learn step; learn multiple times per step in env
                 elif (
                     len(memory) >= agent.batch_size and memory.counter > learning_delay
@@ -261,23 +251,8 @@ if __name__ == "__main__":
                     for _ in range(num_envs // agent.learn_step):
                         # Sample replay buffer
                         experiences = memory.sample(agent.batch_size)
-                        
-                        adv_reg_loss = adversarial_regularization_loss(agent, state, args.perturb_alpha)
-
-                        # Manually compute policy loss
-                        policy_loss = agent.compute_policy_loss(experiences)
-
-                        # Adjust the policy loss by adding adversarial loss
-                        total_loss = policy_loss + args.lam * adv_reg_loss
-
-                        # Apply gradients manually
-                        agent.optimizer.zero_grad()
-
-                        if isinstance(total_loss, np.ndarray):
-                            total_loss = torch.tensor(total_loss, dtype=torch.float32)
-
-                        total_loss.backward()
-                        agent.optimizer.step()
+                        # Learn according to agent's RL algorithm
+                        agent.learn(experiences)
 
                 state = next_state
 
@@ -334,12 +309,12 @@ if __name__ == "__main__":
             agent.steps.append(agent.steps[-1])
 
     # Save the trained algorithm
-    path = "./models/MADDPG"
-    base_filename = "MADDPG_trained_agent_{}.pt".format(args.env)
+    path = "./models/ERNIE"
+    base_filename = "ERNIE_trained_agent_{}".format(args.env)
     os.makedirs(path, exist_ok=True)
 
     # Find existing files that match
-    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*.pt"))
+    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*"))
 
     # Determine the next iteration number
     if existing_files:
