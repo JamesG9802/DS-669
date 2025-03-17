@@ -298,11 +298,11 @@ if __name__ == "__main__":
 
     # Save the trained algorithm
     path = "./models/MADDPG"
-    base_filename = "MADDPG_trained_agent_{}.pt".format(args.env)
+    base_filename = "MADDPG_trained_agent_{}".format(args.env)
     os.makedirs(path, exist_ok=True)
 
     # Find existing files that match
-    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*.pt"))
+    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*"))
 
     # Determine the next iteration number
     if existing_files:

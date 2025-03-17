@@ -72,8 +72,26 @@ if __name__ == "__main__":
     agent_ids = env.agents
 
     # Load the saved agent
-    path = "./models/MADDPG/MADDPG_trained_agent_{}.pt".format(args.env)
-    maddpg = MADDPG.load(path, device)
+    model_dir = "./models/MADDPG/"
+    if args.model_num is None:
+        # Find the latest model file if no specific number is given
+        model_pattern = f"MADDPG_trained_agent_{args.env}_*.pt"
+        model_files = glob.glob(os.path.join(model_dir, model_pattern))
+
+        if not model_files:
+            raise FileNotFoundError(f"No trained MADDPG model found for {args.env} in {model_dir}")
+
+        model_files.sort(key=os.path.getmtime, reverse=True)
+        model_path = model_files[0]  # Load the latest model
+    else:
+        # Load the specified model number
+        model_path = os.path.join(model_dir, f"MADDPG_trained_agent_{args.env}_{args.model_num}.pt")
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Specified model {model_path} does not exist.")
+
+    print(f"Loading model: {model_path}")
+    maddpg = MADDPG.load(model_path, device)
 
     # Define test loop parameters
     episodes = 10  # Number of episodes to test agent on
