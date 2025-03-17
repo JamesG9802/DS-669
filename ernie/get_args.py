@@ -19,5 +19,15 @@ def get_args():
     # Parameters
     parser.add_argument('-seeds', type=int, default=1,
                         help='random seeds, in range [0, seeds)')
+    
+    # ERNIE-specific arguments
+    parser.add_argument('-perturb', action="store_true",
+                        help="Enable adversarial perturbations in training.")
+    
+    parser.add_argument('-perturb_alpha', type=float, default=0.01,
+                        help="Strength of adversarial perturbation.")
+    
+    parser.add_argument('-lam', type=float, default=0.1,
+                        help="Weight of adversarial regularization loss.")
 
     return parser.parse_args()
