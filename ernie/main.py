@@ -21,6 +21,9 @@ from agilerl.vector.pz_async_vec_env import AsyncPettingZooVecEnv
 
 from get_args import get_args
 
+from ernie_maddpg_wrapper import ERNIEAdversarialWrapper
+from ernie_model import ERNIE
+
 if __name__ == "__main__":
     args = get_args()
 
@@ -71,8 +74,17 @@ if __name__ == "__main__":
     elif args.env == "simple_crypto":
         env = simple_crypto_v3
     env = env.parallel_env(continuous_actions=True)
-    
+
+    if args.use_ernie:
+        # Determine observation space dimension dynamically
+        first_agent = env.possible_agents[0]
+        obs_dim = env.observation_space(first_agent).shape[0]
+        
+        ernie_model = ERNIE(obs_dim=obs_dim)  # Initialize ERNIE model
+        env = ERNIEAdversarialWrapper(env, ernie_model)
+
     env = AsyncPettingZooVecEnv([lambda: env for _ in range(num_envs)])
+
     env.reset()
 
     # Configure the multi-agent algo input arguments
@@ -297,12 +309,12 @@ if __name__ == "__main__":
             agent.steps.append(agent.steps[-1])
 
     # Save the trained algorithm
-    path = "./models/MADDPG"
-    base_filename = "MADDPG_trained_agent_{}.pt".format(args.env)
+    path = "./models/ERNIE"
+    base_filename = "ERNIE_trained_agent_{}".format(args.env)
     os.makedirs(path, exist_ok=True)
 
     # Find existing files that match
-    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*.pt"))
+    existing_files = glob.glob(os.path.join(path, f"{base_filename}_*"))
 
     # Determine the next iteration number
     if existing_files:

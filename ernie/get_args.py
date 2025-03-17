@@ -19,5 +19,11 @@ def get_args():
     # Parameters
     parser.add_argument('-seeds', type=int, default=1,
                         help='random seeds, in range [0, seeds)')
+    
+    parser.add_argument('-use_ernie', action='store_true', 
+                    help='Enable ERNIE adversarial perturbations.')
+    
+    parser.add_argument('-model_num', type=int, default=None,
+                    help='Specify the model number to load (default: latest).')
 
     return parser.parse_args()

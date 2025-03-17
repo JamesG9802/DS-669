@@ -38,4 +38,11 @@ pip install -r requirements.txt
 ```
 ````
 
-Now you can **copy and paste** it **directly** into your `README.md` file! 🚀 Let me know if you need any modifications.
+Then run:
+
+```sh
+pip install "agilerl==1.0.25"
+```
+````
+
+There is a pygame conflict between pettingzoo and agilerl so this will solve that problem
