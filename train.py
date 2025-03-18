@@ -1,3 +1,8 @@
+"""This tutorial shows how to train an MADDPG agent on the space invaders atari environment.
+
+Authors: Michael (https://github.com/mikepratt1), Nick (https://github.com/nicku-a)
+"""
+import copy
 import os
 import glob
 import numpy as np
@@ -9,7 +14,11 @@ from agilerl.hpo.tournament import TournamentSelection
 from agilerl.utils.utils import create_population
 from agilerl.vector.pz_async_vec_env import AsyncPettingZooVecEnv
 
-def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, device=None):
+def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use_ernie: bool, device=None):
+    if use_ernie:
+        #   Load the ERNIE monkey-patch
+        import ernie.ernie_model
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -65,7 +74,12 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, dev
     )
 
     # Configure the multi-agent replay buffer
-    field_names = ["state", "action", "reward", "next_state", "done"]
+    
+    if use_ernie:
+        field_names = ["old_global_obs", "state", "action", "reward", "next_state", "done"]
+    else:
+        field_names = ["state", "action", "reward", "next_state", "done"]
+
     memory = MultiAgentReplayBuffer(
         INIT_HP["MEMORY_SIZE"],
         field_names=field_names,
@@ -121,6 +135,8 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, dev
             scores = np.zeros(num_envs)
             completed_episode_scores = []
             steps = 0
+            old_global_obs = copy.deepcopy(state) #    initialize the ernie observation
+
             if INIT_HP["CHANNELS_LAST"]:
                 state = {
                     agent_id: np.moveaxis(s, [-1], [-3])
@@ -153,14 +169,26 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, dev
                     }
 
                 # Save experiences to replay buffer
-                memory.save_to_memory(
-                    state,
-                    cont_actions,
-                    reward,
-                    next_state,
-                    termination,
-                    is_vectorised=True,
-                )
+
+                if use_ernie:
+                    memory.save_to_memory(
+                        state,
+                        cont_actions,
+                        reward,
+                        next_state,
+                        termination,
+                        old_global_obs,
+                        is_vectorised=True,
+                    )
+                else:
+                    memory.save_to_memory(
+                        state,
+                        cont_actions,
+                        reward,
+                        next_state,
+                        termination,
+                        is_vectorised=True,
+                    )
 
                 # Learn according to learning frequency
                 # Handle learn steps > num_envs
@@ -186,6 +214,7 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, dev
                         agent.learn(experiences)
 
                 state = next_state
+                old_global_obs = copy.deepcopy(state)
 
                 # Calculate scores and reset noise for finished episodes
                 reset_noise_indices = []
@@ -242,7 +271,11 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, dev
     # Save the trained algorithm
     algo_name = str(INIT_HP["ALGO"])
     path = f"./models/{algo_name}"
-    base_filename = "MADDPG_trained_agent_{}".format(env_name)
+    base_filename = "trained_agent_{}".format(env_name)
+
+    if use_ernie:
+        base_filename = f"ernie_{base_filename}" 
+
     os.makedirs(path, exist_ok=True)
 
     # Find existing files that match
