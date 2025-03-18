@@ -16,6 +16,14 @@ def get_args():
         default='simple_speaker_listener', 
         help='Pick an environment to run.')
 
+
+    parser.add_argument('-algo', type=str, choices=[
+            'MADDPG',
+            'ERNIE'
+        ],
+        default='MADDPG', 
+        help='Pick an algorithm to use.')
+
     # Parameters
     parser.add_argument('-seeds', type=int, default=1,
                         help='random seeds, in range [0, seeds)')

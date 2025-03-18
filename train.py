@@ -1,77 +1,20 @@
-"""This tutorial shows how to train an MADDPG agent on the space invaders atari environment.
-
-Authors: Michael (https://github.com/mikepratt1), Nick (https://github.com/nicku-a)
-"""
-
 import os
 import glob
-
 import numpy as np
 import torch
-
-from pettingzoo.mpe import simple_speaker_listener_v4, simple_tag_v3, simple_spread_v3, simple_push_v3, simple_adversary_v3, simple_crypto_v3
-
 from tqdm import trange
-
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from agilerl.hpo.mutation import Mutations
 from agilerl.hpo.tournament import TournamentSelection
 from agilerl.utils.utils import create_population
 from agilerl.vector.pz_async_vec_env import AsyncPettingZooVecEnv
 
-from get_args import get_args
+def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, device=None):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-if __name__ == "__main__":
-    args = get_args()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    #   Network architecture based on paper.
-    #   'Unless otherwise specified, our policies are parameterized by a two-layer ReLU MLP with 64 units per layer.'
-    NET_CONFIG = {
-        "arch": "mlp",  # Network architecture
-        "hidden_size": [32, 32],  # Actor hidden size
-    }
-
-    # Define the initial hyperparameters
-    INIT_HP = {
-        "POPULATION_SIZE": 4,
-        "ALGO": "MADDPG",  # Algorithm
-        # Swap image channels dimension from last to first [H, W, C] -> [C, H, W]
-        "CHANNELS_LAST": False,
-        "BATCH_SIZE": 1024,  # Batch size
-        "O_U_NOISE": True,  # Ornstein Uhlenbeck action noise
-        "EXPL_NOISE": 0.1,  # Action noise scale
-        "MEAN_NOISE": 0.0,  # Mean action noise
-        "THETA": 0.15,  # Rate of mean reversion in OU noise
-        "DT": 0.01,  # Timestep for OU noise
-        "LR_ACTOR": 0.01,  # Actor learning rate
-        "LR_CRITIC": 0.01,  # Critic learning rate
-        "GAMMA": 0.95,  # Discount factor
-        "MEMORY_SIZE": 100000,  # Max memory buffer size
-        "LEARN_STEP": 100,  # Learning frequency
-        "TAU": 0.01,  # For soft update of target parameters
-        "POLICY_FREQ": 2,  # Policy frequnecy
-    }
-
-    num_envs = 8
-    # Define the simple speaker listener environment as a parallel environment
-
-    env = None
-    if args.env == "simple_tag":
-        env = simple_tag_v3
-    elif args.env == "simple_speaker_listener":
-        env = simple_speaker_listener_v4
-    elif args.env == "simple_spread":
-        env = simple_spread_v3
-    elif args.env == "simple_push":
-        env = simple_push_v3
-    elif args.env == "simple_adversary":
-        env = simple_adversary_v3
-    elif args.env == "simple_crypto":
-        env = simple_crypto_v3
+    # Set up the environment
     env = env.parallel_env(continuous_actions=True)
-    
     env = AsyncPettingZooVecEnv([lambda: env for _ in range(num_envs)])
     env.reset()
 
@@ -82,6 +25,7 @@ if __name__ == "__main__":
     except Exception:
         state_dim = [env.single_observation_space(agent).shape for agent in env.agents]
         one_hot = False
+
     try:
         action_dim = [env.single_action_space(agent).n for agent in env.agents]
         INIT_HP["DISCRETE_ACTIONS"] = True
@@ -159,13 +103,12 @@ if __name__ == "__main__":
     )
 
     # Define training loop parameters
-    max_steps = 20000  # Max steps (default: 2000000)
     learning_delay = 0  # Steps before starting learning
     evo_steps = 1000  # Evolution frequency
     eval_steps = None  # Evaluation steps per episode - go until done
     eval_loop = 1  # Number of evaluation episodes
     elite = pop[0]  # Assign a placeholder "elite" agent
-
+    
     total_steps = 0
 
     # TRAINING LOOP
@@ -297,8 +240,9 @@ if __name__ == "__main__":
             agent.steps.append(agent.steps[-1])
 
     # Save the trained algorithm
-    path = "./models/MADDPG"
-    base_filename = "MADDPG_trained_agent_{}".format(args.env)
+    algo_name = str(INIT_HP["ALGO"])
+    path = f"./models/{algo_name}"
+    base_filename = "MADDPG_trained_agent_{}".format(env_name)
     os.makedirs(path, exist_ok=True)
 
     # Find existing files that match
