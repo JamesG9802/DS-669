@@ -47,7 +47,13 @@ if __name__ == "__main__":
         env = simple_adversary_v3
     elif args.env == "simple_crypto":
         env = simple_crypto_v3
-    env = env.parallel_env(continuous_actions=True, render_mode="rgb_array")
+
+    #   Checks if you have the petting zoo update before they introduced dynamic rescaling
+    try:
+        env = env.parallel_env(continuous_actions=True, render_mode="rgb_array", dynamic_rescaling=True)
+    except Exception:
+        env = env.parallel_env(continuous_actions=True, render_mode="rgb_array")
+
     env.reset()
 
     try:
@@ -72,10 +78,10 @@ if __name__ == "__main__":
     agent_ids = env.agents
 
     # Load the saved agent
-    model_dir = "./models/MADDPG/"
+    model_dir = f"./models/{args.algo}/"
     if args.model_num is None:
         # Find the latest model file if no specific number is given
-        model_pattern = f"MADDPG_trained_agent_{args.env}_*.pt"
+        model_pattern = f"{args.algo}_trained_agent_{args.env}_*.pt"
         model_files = glob.glob(os.path.join(model_dir, model_pattern))
 
         if not model_files:
@@ -85,7 +91,7 @@ if __name__ == "__main__":
         model_path = model_files[0]  # Load the latest model
     else:
         # Load the specified model number
-        model_path = os.path.join(model_dir, f"MADDPG_trained_agent_{args.env}_{args.model_num}.pt")
+        model_path = os.path.join(model_dir, f"{args.algo}_trained_agent_{args.env}_{args.model_num}.pt")
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Specified model {model_path} does not exist.")
@@ -158,7 +164,7 @@ if __name__ == "__main__":
 
     # Save the gif to specified path
     gif_path = "./videos/"
-    base_filename = "{}".format(args.env)
+    base_filename = f"{args.algo}_{args.env}"
 
     os.makedirs(gif_path, exist_ok=True)
 
