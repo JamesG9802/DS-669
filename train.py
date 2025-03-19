@@ -76,7 +76,7 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
     # Configure the multi-agent replay buffer
     
     if use_ernie:
-        field_names = ["old_global_obs", "state", "action", "reward", "next_state", "done"]
+        field_names = ["old_local_obs", "state", "action", "reward", "next_state", "done"]
     else:
         field_names = ["state", "action", "reward", "next_state", "done"]
 
@@ -135,7 +135,7 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
             scores = np.zeros(num_envs)
             completed_episode_scores = []
             steps = 0
-            old_global_obs = copy.deepcopy(state) #    initialize the ernie observation
+            old_local_obs = copy.deepcopy(state) #    initialize the ernie observation
 
             if INIT_HP["CHANNELS_LAST"]:
                 state = {
@@ -187,7 +187,7 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
                         reward,
                         next_state,
                         termination,
-                        old_global_obs,
+                        old_local_obs,
                         is_vectorised=True,
                     )
                 else:
@@ -224,7 +224,7 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
                         agent.learn(experiences)
 
                 state = next_state
-                old_global_obs = copy.deepcopy(state)
+                old_local_obs = copy.deepcopy(state)
 
                 # Calculate scores and reset noise for finished episodes
                 reset_noise_indices = []

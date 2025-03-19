@@ -20,7 +20,6 @@ if __name__ == "__main__":
     NET_CONFIG = {
         "arch": "mlp",  # Network architecture
         "hidden_size": [32, 32],  # Actor hidden size
-        "mlp_output_activation": "Tanh"
     }
 
     # Define the initial hyperparameters
