@@ -37,6 +37,13 @@ from agilerl.algorithms.maddpg import MADDPG
 #     print("Perturbation:", perturbation)
 #     print("Perturbed Observation:", dummy_obs + perturbation)
 
+def weight_regularization_loss(model, lambda_reg=1e-5):
+    weight_loss = 0
+    for param in model.parameters():
+        # L2 norm of the weights
+        weight_loss += torch.norm(param, p=2)
+    return lambda_reg * weight_loss
+
 def ernie_learn(self, experiences):
     """
     The custom overriden learning function for the MADDPG algorithm to account for the
@@ -269,48 +276,66 @@ def ernie_learn_individual(
 ####
 #   Adding the ERNIE LOSS to the actor
 ####
-                _obs = old_global_obs[agent_id]
+                _obs = old_global_obs[agent_id].clone().detach()
                 perturbed_tensor = _obs + torch.normal(torch.zeros_like(_obs), torch.ones_like(_obs) * 1e-3)
                 perturbed_tensor.requires_grad = True
-
+                
                 #   TODO! setup configuration for perturbations, for now hardcode 
                 # for k in range(self.config.alg.perturb_num_steps):
-                for k in range(5):
-                    # Calculate adversarial perurbation
+                for k in range(2):
                     distance_loss = torch.norm(actor(_obs) - actor(perturbed_tensor), p="fro")
-                    grad = torch.autograd.grad(outputs=distance_loss, inputs=perturbed_tensor, grad_outputs=torch.ones_like(actor_loss), retain_graph=True, create_graph=True)[0]
-                    # perturbed_tensor = perturbed_tensor + self.config.alg.perturb_alpha * grad * torch.abs(_obs.detach())
-                    perturbed_tensor = perturbed_tensor + 1e-2 * grad * torch.abs(_obs.detach())
-                adv_reg_loss = torch.norm(_obs - perturbed_tensor, p=2, dim=-1).mean()
 
-                if torch.isnan(adv_reg_loss).any():
-                    print("Warning: adv_reg_loss is NaN! Skipping update.")
+                    # Compute gradient
+                    grad = torch.autograd.grad(outputs=distance_loss, 
+                                            inputs=perturbed_tensor, 
+                                            grad_outputs=torch.ones_like(distance_loss), 
+                                            retain_graph=True, 
+                                            create_graph=True)[0]
+
+                    # Apply perturbation
+                    perturbation = 1e-3 * grad * torch.abs(_obs.detach())
                     
+                    # Ensure perturbation remains small to avoid instability
+                    perturbed_tensor = perturbed_tensor + perturbation
+                
+                adv_reg_loss = torch.norm(actor(_obs) - actor(perturbed_tensor), p="fro")
                 actor_loss += adv_reg_loss
+                
+                #   Add L2 regularization loss
+                actor_loss += weight_regularization_loss(actor)
 
             else:
                 actor_loss = -critic(input_combined).mean()
 ####
 #   Adding the ERNIE LOSS to the actor
 ####
-                _obs = old_global_obs[agent_id]
+                _obs = old_global_obs[agent_id].clone().detach()
                 perturbed_tensor = _obs + torch.normal(torch.zeros_like(_obs), torch.ones_like(_obs) * 1e-3)
                 perturbed_tensor.requires_grad = True
 
                 #   TODO! setup configuration for perturbations, for now hardcode 
                 # for k in range(self.config.alg.perturb_num_steps):
-                for k in range(5):
-                    # Calculate adversarial perurbation
+                for k in range(2):
                     distance_loss = torch.norm(actor(_obs) - actor(perturbed_tensor), p="fro")
-                    grad = torch.autograd.grad(outputs=distance_loss, inputs=perturbed_tensor, grad_outputs=torch.ones_like(actor_loss), retain_graph=True, create_graph=True)[0]
-                    # perturbed_tensor = perturbed_tensor + self.config.alg.perturb_alpha * grad * torch.abs(_obs.detach())
-                    perturbed_tensor = perturbed_tensor + 1e-2 * grad * torch.abs(_obs.detach())
-                adv_reg_loss = torch.norm(_obs - perturbed_tensor, p=2, dim=-1).mean()
 
-                if torch.isnan(adv_reg_loss).any():
-                    print("Warning: adv_reg_loss is NaN! Skipping update.")
+                    # Compute gradient
+                    grad = torch.autograd.grad(outputs=distance_loss, 
+                                            inputs=perturbed_tensor, 
+                                            grad_outputs=torch.ones_like(distance_loss), 
+                                            retain_graph=True, 
+                                            create_graph=True)[0]
 
+                    # Apply perturbation
+                    perturbation = 1e-3 * grad * torch.abs(_obs.detach())
+                    
+                    # Ensure perturbation remains small to avoid instability
+                    perturbed_tensor = perturbed_tensor + perturbation
+                
+                adv_reg_loss = torch.norm(actor(_obs) - actor(perturbed_tensor), p="fro")
                 actor_loss += adv_reg_loss
+
+                #   Add L2 regularization loss
+                actor_loss += weight_regularization_loss(actor)
 
         #   TODO! we aren't using a CNN, but I mean we could implement the loss for this
         elif self.arch == "cnn":
