@@ -39,7 +39,7 @@ from wandb import agent
 #     print("Perturbation:", perturbation)
 #     print("Perturbed Observation:", dummy_obs + perturbation)
 
-def ernie_adv_reg_loss(self, obs, perturbed_obs, actions, network):
+def ernie_adv_reg_loss(self, obs, perturbed_obs, actions, actor):
     '''
     Function to get the regularization part of the loss function based on adversarial perturbation
 
@@ -48,23 +48,21 @@ def ernie_adv_reg_loss(self, obs, perturbed_obs, actions, network):
     - obs : the non-perturbed obs tensor [batch_size, num_lights, obs_shape]
     - perturbed_obs : the perturbed obs tensor [batch_size, num_lights, obs_shape]
     - actions : the actions taken by each agent [batch_size, num_lights]
-    - network : the network that we are applying the regularizer to [nn.Module]
+    - actor : the actor that we are applying the regularizer to [nn.Module]
     Returns
     -------
     - reg_loss : the regularization loss
     '''
     # print(obs.shape, perturbed_obs.shape)
     perturbed_obs = perturbed_obs.detach()
-    if network == self.critic:
-        obs_shape = obs.size()[2]
-        actions = actions.view(-1, 1)
-        normal = network(obs.view(-1, obs_shape), actions)
-        perturbed = network(perturbed_obs.view(-1, obs_shape), actions)
-    elif network == self.actor:
-        normal = network(obs)
-        perturbed = network(perturbed_obs)
-    else:
-        raise Exception
+    # if network == self.critic:
+    #     obs_shape = obs.size()[2]
+    #     actions = actions.view(-1, 1)
+    #     normal = network(obs.view(-1, obs_shape), actions)
+    #     perturbed = network(perturbed_obs.view(-1, obs_shape), actions)
+    # elif network == self.actor:
+    normal = actor(obs)
+    perturbed = actor(perturbed_obs)
 
     reg_loss = torch.norm(normal - perturbed, p="fro")
     
@@ -84,7 +82,7 @@ def ernie_learn(self, experiences):
 ####
 #   Taking into account the local obs
 ####
-    states, actions, rewards, next_states, dones, old_local_obs = experiences
+    states, actions, rewards, next_states, dones = experiences
     if self.one_hot:
         states = {
             agent_id: nn.functional.one_hot(state.long(), num_classes=state_dim[0])
@@ -100,19 +98,6 @@ def ernie_learn(self, experiences):
             .squeeze(1)
             for (agent_id, next_state), state_dim in zip(
                 next_states.items(), self.state_dims
-            )
-        }
-####
-#   One hot encoding local obs
-####
-        old_local_obs = {
-            agent_id: nn.functional.one_hot(
-                obs.long(), num_classes=state_dim[0]
-            )
-            .float()
-            .squeeze(1)
-            for (agent_id, obs), state_dim in zip(
-                old_local_obs.items(), self.state_dims
             )
         }
     next_actions = []
@@ -195,7 +180,6 @@ def ernie_learn(self, experiences):
             actions,
             rewards,
             dones,
-            old_local_obs,
         )
 
     for actor, actor_target, critic, critic_target in zip(
@@ -225,7 +209,6 @@ def ernie_learn_individual(
         actions,
         rewards,
         dones,
-        old_local_obs,
     ):
         """
         The custom overriden learning function for the MADDPG algorithm to account for the
@@ -291,26 +274,38 @@ def ernie_learn_individual(
                     action * self.max_action[idx][0],
                     action * -self.min_action[idx][0],
                 )
+            # detached_actions = copy.deepcopy(actions)
+            # detached_actions[agent_id] = action
+            # input_combined = torch.cat(
+            #     list(states.values()) + list(detached_actions.values()), 1
+            # )            
             detached_actions = copy.deepcopy(actions)
             detached_actions[agent_id] = action
+            _states = {}
+            for key, state in states.items():
+                if key == agent_id:
+                    # Make sure the agent's state is differentiable
+                    state.requires_grad = True
+                    _states[key] = state
+                else:
+                    _states[key] = state.detach()
             input_combined = torch.cat(
-                list(states.values()) + list(detached_actions.values()), 1
+                list(_states.values()) + list(detached_actions.values()), 1
             )
+            
             if self.accelerator is not None:
                 with critic.no_sync():
                     actor_loss = -critic(input_combined).mean()
                     
-                    _old_local_obs = old_local_obs[agent_id]
-                    _old_local_obs.requires_grad = True
                     # Get the regularization loss for a smooth policy
-                    perturbed_tensor = torch.normal(_old_local_obs.detach(), torch.ones_like(_old_local_obs.detach()) * 1e-3)
+                    perturbed_tensor = torch.normal(states[agent_id].detach(), torch.ones_like(states[agent_id].detach()) * 1e-3)
                     perturbed_tensor.requires_grad = True
                     # for i in range(self.config.alg.perturb_num_steps):
                     for i in range(2):
                         # Gradient of loss wrt the old observation
 
-                        obs_grad = torch.autograd.grad(outputs=actor_loss, inputs=_old_local_obs, grad_outputs=torch.ones_like(actor_loss), retain_graph=True)[0]
-						
+                        obs_grad = torch.autograd.grad(outputs=actor_loss, inputs=states[agent_id], grad_outputs=torch.ones_like(actor_loss), retain_graph=True)[0]
+                        
                         # project gradient onto ball
                         # obs_grad = torch.clamp(input=obs_grad, min=-self.config.alg.perturb_radius,
                         #                         max=self.config.alg.perturb_radius)
@@ -319,12 +314,33 @@ def ernie_learn_individual(
                         # perturbed_tensor = perturbed_tensor + self.config.alg.perturb_alpha * obs_grad
                         perturbed_tensor = perturbed_tensor + 1e-1 * obs_grad
 
-                    adv_reg_loss = self.get_adv_reg_loss(_old_local_obs, perturbed_tensor, actions, self.actor)
+                    adv_reg_loss = self.get_adv_reg_loss(states[agent_id], perturbed_tensor, actions, actor)
                     # actor_loss = actor_loss + self.config.alg.lam * adv_reg_loss
                     actor_loss = actor_loss + 1e-1 * adv_reg_loss
 
             else:
                 actor_loss = -critic(input_combined).mean()
+                
+                # Get the regularization loss for a smooth policy
+                perturbed_tensor = torch.normal(states[agent_id].detach(), torch.ones_like(states[agent_id].detach()) * 1e-3)
+                perturbed_tensor.requires_grad = True
+                # for i in range(self.config.alg.perturb_num_steps):
+                for i in range(2):
+                    # Gradient of loss wrt the old observation
+
+                    obs_grad = torch.autograd.grad(outputs=actor_loss, inputs=states[agent_id], grad_outputs=torch.ones_like(actor_loss), retain_graph=True)[0]
+                    
+                    # project gradient onto ball
+                    # obs_grad = torch.clamp(input=obs_grad, min=-self.config.alg.perturb_radius,
+                    #                         max=self.config.alg.perturb_radius)
+                    obs_grad = torch.clamp(input=obs_grad, min=-1,
+                                            max=1)
+                    # perturbed_tensor = perturbed_tensor + self.config.alg.perturb_alpha * obs_grad
+                    perturbed_tensor = perturbed_tensor + 1e-1 * obs_grad
+
+                adv_reg_loss = self.get_adv_reg_loss(states[agent_id], perturbed_tensor, actions, actor)
+                # actor_loss = actor_loss + self.config.alg.lam * adv_reg_loss
+                actor_loss = actor_loss + 1e-1 * adv_reg_loss
 
         #   TODO! we aren't using a CNN, but I mean we could implement the loss for this
         elif self.arch == "cnn":
