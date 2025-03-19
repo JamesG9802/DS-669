@@ -20,6 +20,7 @@ if __name__ == "__main__":
     NET_CONFIG = {
         "arch": "mlp",  # Network architecture
         "hidden_size": [32, 32],  # Actor hidden size
+        "mlp_output_activation": "Tanh"
     }
 
     # Define the initial hyperparameters
@@ -60,4 +61,5 @@ if __name__ == "__main__":
     elif args.env == "simple_crypto":
         env = simple_crypto_v3
     
+    torch.manual_seed(0)
     train_algorithm(env, args.env, NET_CONFIG, INIT_HP, num_envs, args.max_steps, args.use_ernie, device)

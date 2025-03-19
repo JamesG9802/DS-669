@@ -155,8 +155,18 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
                     action = cont_actions
 
                 # Act in environment
-                next_state, reward, termination, truncation, info = env.step(action)
-
+                try:
+                    next_state, reward, termination, truncation, info = env.step(action)
+                except Exception:
+                    print("Crashed")
+                    print(action)
+                    for i, actor in enumerate(agent.actors):
+                        # Sum all the weights of the actor
+                        actor_weight_sum = sum(p.sum() for p in actor.parameters())
+                        print(f"Sum of actor weights for agent {i}: {actor_weight_sum.item()}")
+                        for p in actor.parameters():
+                            print(p)
+                    exit()
                 scores += np.sum(np.array(list(reward.values())).transpose(), axis=-1)
                 total_steps += num_envs
                 steps += num_envs
