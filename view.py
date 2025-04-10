@@ -108,7 +108,7 @@ if __name__ == "__main__":
     maddpg = MADDPG.load(model_path, device)
 
     # Define test loop parameters
-    episodes = 10  # Number of episodes to test agent on
+    episodes = 1000  # Number of episodes to test agent on
     max_steps = 100  # Max number of steps to take in the environment in each episode
 
     rewards = []  # List to collect total episodic reward
@@ -123,6 +123,28 @@ if __name__ == "__main__":
         agent_id: [] for agent_id in agent_ids
     }  # Dictionary to collect inidivdual agent rewards
 
+    def save_function():
+        frame = env.render()
+        frames.append(_label_with_episode_number(frame, episode_num=ep))
+
+    frame_save = save_function if args.save else lambda _ : None
+
+    epsilon = args.noise
+
+    def perturbed_observation(obs):
+        """
+        Converts observations from NumPy to PyTorch, applies ERNIE perturbations, and converts back.
+        """
+        perturbed_obs = {}
+        for agent, agent_obs in obs.items():  # Iterate through each agent's observation
+            obs_tensor = torch.tensor(agent_obs, dtype=torch.float32)  # Convert NumPy to Tensor
+            perturbation = torch.randn_like(obs_tensor) * epsilon  # Gaussian noise
+            perturbed_obs[agent] = (obs_tensor + epsilon * perturbation).numpy()  # Convert back to NumPy
+        return perturbed_obs  # Return as a dictionary
+
+    #   Get the perturbed observation if using ernie, otherwise use the default obs
+    get_obs = perturbed_observation if epsilon != None else lambda obs: obs
+
     # Test loop for inference
     for ep in range(episodes):
         state, info = env.reset()
@@ -130,6 +152,8 @@ if __name__ == "__main__":
         score = 0
         for _ in range(max_steps):
             # Get next action from agent
+            state = get_obs(state)
+
             cont_actions, discrete_action = maddpg.get_action(
                 state, training=False, infos=info
             )
@@ -139,8 +163,9 @@ if __name__ == "__main__":
                 action = cont_actions
 
             # Save the frame for this step and append to frames list
-            frame = env.render()
-            frames.append(_label_with_episode_number(frame, episode_num=ep))
+            # frame = env.render()
+            # frames.append(_label_with_episode_number(frame, episode_num=ep))
+            save_function()
 
             # Take action in environment
             state, reward, termination, truncation, info = env.step(
@@ -159,7 +184,6 @@ if __name__ == "__main__":
                 break
 
         rewards.append(score)
-
         # Record agent specific episodic reward
         for agent_id in agent_ids:
             indi_agent_rewards[agent_id].append(agent_reward[agent_id])
@@ -169,6 +193,20 @@ if __name__ == "__main__":
         for agent_id, reward_list in indi_agent_rewards.items():
             print(f"{agent_id} reward: {reward_list[-1]}")
     env.close()
+
+    print(f"Agent's average reward over {episodes} episodes:")
+    for agent_id, reward_list in indi_agent_rewards.items():
+        average_reward = sum(reward_list) / len(reward_list)
+        min_reward = min(reward_list)
+        max_reward = max(reward_list)
+        std_reward = np.std(reward_list)
+        print(f"{agent_id} average reward: {average_reward}")
+        print(f"{agent_id} min reward: {min_reward}")
+        print(f"{agent_id} max reward: {max_reward}")
+        print(f"{agent_id} std reward: {std_reward}")
+
+    if not args.save:
+        exit(0) 
 
     # Save the gif to specified path
     gif_path = "./videos/"

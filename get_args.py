@@ -34,6 +34,12 @@ def get_args():
                     help='Specify the model number to load (default: latest).')
 
     parser.add_argument('-max_steps', type=int, default=10000,
-                    help='The maximum number of training streps.')
+                    help='The maximum number of training steps.')
+
+    parser.add_argument('-save', action="store_true",
+                    help="Whether to save the video.")
+
+    parser.add_argument('-noise', type=float, default=None,
+                    help="The episilon noise strength to add to inputs during evaluation.")
 
     return parser.parse_args()
