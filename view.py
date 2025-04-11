@@ -204,6 +204,7 @@ if __name__ == "__main__":
         print(f"{agent_id} min reward: {min_reward}")
         print(f"{agent_id} max reward: {max_reward}")
         print(f"{agent_id} std reward: {std_reward}")
+        print(average_reward, min_reward, max_reward, std_reward)
 
     if not args.save:
         exit(0) 
