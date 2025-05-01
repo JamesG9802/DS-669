@@ -19,7 +19,7 @@ if __name__ == "__main__":
     #   'Unless otherwise specified, our policies are parameterized by a two-layer ReLU MLP with 64 units per layer.'
     NET_CONFIG = {
         "arch": "mlp",  # Network architecture
-        "hidden_size": [32, 32],  # Actor hidden size
+        "hidden_size": [128, 128],  # Actor hidden size
     }
 
     # Define the initial hyperparameters
@@ -28,7 +28,7 @@ if __name__ == "__main__":
         "ALGO": "MADDPG",  # Algorithm
         # Swap image channels dimension from last to first [H, W, C] -> [C, H, W]
         "CHANNELS_LAST": False,
-        "BATCH_SIZE": 1024,  # Batch size
+        "BATCH_SIZE": 1000000,  # Batch size
         "O_U_NOISE": True,  # Ornstein Uhlenbeck action noise
         "EXPL_NOISE": 0.1,  # Action noise scale
         "MEAN_NOISE": 0.0,  # Mean action noise
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         "LR_ACTOR": 0.01,  # Actor learning rate
         "LR_CRITIC": 0.01,  # Critic learning rate
         "GAMMA": 0.95,  # Discount factor
-        "MEMORY_SIZE": 100000,  # Max memory buffer size
+        "MEMORY_SIZE": 10000000,  # Max memory buffer size
         "LEARN_STEP": 100,  # Learning frequency
         "TAU": 0.01,  # For soft update of target parameters
         "POLICY_FREQ": 2,  # Policy frequnecy

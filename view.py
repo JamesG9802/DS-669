@@ -1,5 +1,6 @@
 import os
 import glob
+from typing import Dict
 
 import imageio
 import numpy as np
@@ -77,38 +78,43 @@ if __name__ == "__main__":
     n_agents = env.num_agents
     agent_ids = env.agents
 
-    # Load the saved agent
-    model_dir = f"./models/{args.algo}/"
-    if args.model_num is None:
-        # Find the latest model file if no specific number is given
-        model_pattern = f"trained_agent_{args.env}_*.pt"
+    models: Dict[str, MADDPG] = {}
 
-        if args.use_ernie:
-            model_pattern = f"ernie_{model_pattern}" 
+    for agent_id in agent_ids:
+        # Load the saved agent
+        model_dir = f"./models/MADDPG/"
+        if args.model_num is None:
+            # Find the latest model file if no specific number is given
+            model_pattern = f"trained_agent_{args.env}_*.pt"
 
-        model_files = glob.glob(os.path.join(model_dir, model_pattern))
+            if (args.agent_setup == "e_m" and str(agent_id).startswith("adversary")) or \
+                (args.agent_setup == "m_e" and str(agent_id).startswith("agent")):
+                model_pattern = f"ernie_{model_pattern}" 
 
-        if not model_files:
-            raise FileNotFoundError(f"No trained MADDPG model found for {args.env} in {model_dir}")
+            model_files = glob.glob(os.path.join(model_dir, model_pattern))
 
-        model_files.sort(key=os.path.getmtime, reverse=True)
-        model_path = model_files[0]  # Load the latest model
-    else:
-        # Load the specified model number
-        model_file_name = f"trained_agent_{args.env}_{args.model_num}.pt"
+            if not model_files:
+                raise FileNotFoundError(f"No trained MADDPG model found for {args.env} in {model_dir}")
 
-        if args.use_ernie:
-            model_file_name = f"ernie_{model_file_name}"
-        model_path = os.path.join(model_dir, model_file_name)
+            model_files.sort(key=os.path.getmtime, reverse=True)
+            model_path = model_files[0]  # Load the latest model
+        else:
+            # Load the specified model number
+            model_file_name = f"trained_agent_{args.env}_{args.model_num}.pt"
 
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Specified model {model_path} does not exist.")
+            if (args.agent_setup == "e_m" and str(agent_id).startswith("adversary")) or \
+                (args.agent_setup == "m_e" and str(agent_id).startswith("agent")):
+                model_pattern = f"ernie_{model_pattern}"
 
-    print(f"Loading model: {model_path}")
-    maddpg = MADDPG.load(model_path, device)
+            model_path = os.path.join(model_dir, model_file_name)
+
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Specified model {model_path} does not exist.")
+        print(f"Loading {model_path} for {agent_id}")
+        models[agent_id] = MADDPG.load(model_path, device)
 
     # Define test loop parameters
-    episodes = 1000  # Number of episodes to test agent on
+    episodes = 10  # Number of episodes to test agent on
     max_steps = 100  # Max number of steps to take in the environment in each episode
 
     rewards = []  # List to collect total episodic reward
@@ -154,13 +160,19 @@ if __name__ == "__main__":
             # Get next action from agent
             state = get_obs(state)
 
-            cont_actions, discrete_action = maddpg.get_action(
-                state, training=False, infos=info
-            )
-            if maddpg.discrete_actions:
-                action = discrete_action
-            else:
-                action = cont_actions
+            action = {}
+
+            for agent_id, model in models.items():
+                agent_state = state[agent_id]
+                agent_infos = info.get(agent_id, {})
+                
+                cont_actions, discrete_action = model.get_action(
+                    state, training=False, infos=info
+                )
+                if model.discrete_actions:
+                    action = discrete_action
+                else:
+                    action = cont_actions
 
             # Save the frame for this step and append to frames list
             # frame = env.render()
@@ -211,10 +223,7 @@ if __name__ == "__main__":
 
     # Save the gif to specified path
     gif_path = "./videos/"
-    base_filename = f"{args.algo}_{args.env}"
-
-    if args.use_ernie:
-        base_filename = f"ernie_{base_filename}"
+    base_filename = f"{args.agent_setup}_{args.env}"
 
     os.makedirs(gif_path, exist_ok=True)
 

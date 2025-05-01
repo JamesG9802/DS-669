@@ -16,13 +16,6 @@ def get_args():
         default='simple_speaker_listener', 
         help='Pick an environment to run.')
 
-
-    parser.add_argument('-algo', type=str, choices=[
-            'MADDPG',
-        ],
-        default='MADDPG', 
-        help='Pick an algorithm to use.')
-
     parser.add_argument('-use_ernie', action='store_true', 
                     help='Enable ERNIE adversarial perturbations.')
     
@@ -41,5 +34,15 @@ def get_args():
 
     parser.add_argument('-noise', type=float, default=None,
                     help="The episilon noise strength to add to inputs during evaluation.")
+
+    parser.add_argument('-agent_setup', type=str, choices=[
+        "m_m",
+        "m_e",
+        "e_m",
+        "e_e"
+        ],
+        default="m_m",
+        help="How models are assigned during viewing. m_m = MADDPG vs MADDPG, m_e = MADDPG vs ERNIE, e_m = ERNIE vs MADDPG, and e_e = ERNIE vs ERNIE"
+    )
 
     return parser.parse_args()
