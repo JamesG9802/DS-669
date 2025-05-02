@@ -2,7 +2,6 @@
 
 Authors: Michael (https://github.com/mikepratt1), Nick (https://github.com/nicku-a)
 """
-import copy
 import os
 import glob
 import numpy as np
@@ -291,3 +290,5 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
 
     pbar.close()
     env.close()
+
+    return pop

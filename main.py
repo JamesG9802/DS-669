@@ -2,6 +2,7 @@
 
 Authors: Michael (https://github.com/mikepratt1), Nick (https://github.com/nicku-a)
 """
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
 
@@ -60,5 +61,21 @@ if __name__ == "__main__":
     elif args.env == "simple_crypto":
         env = simple_crypto_v3
     
-    torch.manual_seed(0)
-    train_algorithm(env, args.env, NET_CONFIG, INIT_HP, num_envs, args.max_steps, args.use_ernie, device)
+    # torch.manual_seed(0)
+    pop = train_algorithm(env, args.env, NET_CONFIG, INIT_HP, num_envs, args.max_steps, args.use_ernie, device)
+    # ─── 1) Print how many episodes each agent ran ───
+    print("\nEpisodes completed per agent:")
+    for i, agent in enumerate(pop):
+        print(f"  Agent {i} ({agent}): {len(agent.scores)} episodes")
+
+    # ─── 2) Plot per‐episode reward curves ───
+    plt.figure(figsize=(10,6))
+    for i, agent in enumerate(pop):
+        plt.plot(agent.scores, label=f"Agent {i}")
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("Per-Episode Rewards During Training")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()

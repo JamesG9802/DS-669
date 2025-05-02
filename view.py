@@ -1,9 +1,14 @@
+from multiprocessing.reduction import steal_handle
 import os
 import glob
 from typing import Dict
 
 import imageio
 import numpy as np
+import pettingzoo
+import pettingzoo.mpe
+import pettingzoo.mpe.simple_push.simple_push
+import pettingzoo.mpe.simple_spread.simple_spread
 import torch
 from pettingzoo.mpe import simple_speaker_listener_v4, simple_tag_v3, simple_spread_v3, simple_push_v3, simple_adversary_v3, simple_crypto_v3
 from PIL import Image, ImageDraw
@@ -11,6 +16,9 @@ from PIL import Image, ImageDraw
 from agilerl.algorithms.maddpg import MADDPG
 
 from get_args import get_args
+import pettingzoo.mpe.simple_push
+
+import pettingzoo.mpe.simple_spread
 
 # Define function to return image
 def _label_with_episode_number(frame, episode_num):
@@ -42,8 +50,46 @@ if __name__ == "__main__":
         env = simple_speaker_listener_v4
     elif args.env == "simple_spread":
         env = simple_spread_v3
+
+        # For some reason, the benchmark_data function just isn't properly working??????????
+        def simple_spread_benchmark_data(self, agent, world):
+            rew = 0
+            collisions = 0
+            occupied_landmarks = 0
+            min_dists = 0
+            for lm in world.landmarks:
+                dists = [
+                    np.sqrt(np.sum(np.square(a.state.p_pos - lm.state.p_pos)))
+                    for a in world.agents
+                ]
+                min_dists += min(dists)
+                rew -= min(dists)
+                if min(dists) < 0.1:
+                    occupied_landmarks += 1
+            if agent.collide:
+                for a in world.agents:
+                    #   an agent shouldn't care if it collides with itself...
+                    #   this reflects the correct and intended behaviour as the reward function ignores self-collisions 
+                    if self.is_collision(a, agent) and a != agent:
+                        rew -= 1
+                        collisions += 1
+            return (rew, collisions, min_dists, occupied_landmarks)
+    
+        pettingzoo.mpe.simple_spread.simple_spread.Scenario.benchmark_data = simple_spread_benchmark_data
+
     elif args.env == "simple_push":
         env = simple_push_v3
+        # For some reason, there is no benchmark_data function defined for simple_push???
+
+        def simple_push_benchmark_data(self, agent, world):
+            # only for adversary
+            if not agent.adversary:
+                return 0.0
+            # distance from adversary to its goal
+            dist = np.linalg.norm(agent.state.p_pos - agent.goal_a.state.p_pos)
+            # threshold: “on goal” if within agent size
+            return 1.0 if dist < agent.size else 0.0
+        pettingzoo.mpe.simple_push.simple_push.Scenario.benchmark_data = simple_push_benchmark_data
     elif args.env == "simple_adversary":
         env = simple_adversary_v3
     elif args.env == "simple_crypto":
@@ -114,7 +160,7 @@ if __name__ == "__main__":
         models[agent_id] = MADDPG.load(model_path, device)
 
     # Define test loop parameters
-    episodes = 10  # Number of episodes to test agent on
+    episodes = 1000  # Number of episodes to test agent on
     max_steps = 100  # Max number of steps to take in the environment in each episode
 
     rewards = []  # List to collect total episodic reward
@@ -124,6 +170,8 @@ if __name__ == "__main__":
     }  # Dictionary to collect inidivdual agent rewards
 
     rewards = []  # List to collect total episodic reward
+    infos = []  # List of each agent's info for each episode
+
     frames = []  # List to collect frames
     indi_agent_rewards = {
         agent_id: [] for agent_id in agent_ids
@@ -151,7 +199,13 @@ if __name__ == "__main__":
     #   Get the perturbed observation if using ernie, otherwise use the default obs
     get_obs = perturbed_observation if epsilon != None else lambda obs: obs
 
+    
+    # Record benchmark data
+    scenario = env.unwrapped.scenario
+    world    = env.unwrapped.world
+
     # Test loop for inference
+    episode_info = { agent_id: [] for agent_id in agent_ids }
     for ep in range(episodes):
         state, info = env.reset()
         agent_reward = {agent_id: 0 for agent_id in agent_ids}
@@ -191,6 +245,10 @@ if __name__ == "__main__":
             # Determine total score for the episode and then append to rewards list
             score = sum(agent_reward.values())
 
+            for agent in world.agents:
+                data = scenario.benchmark_data(agent, world)
+                episode_info[agent.name].append(data)
+
             # Stop episode if any agents have terminated
             if any(truncation.values()) or any(termination.values()):
                 break
@@ -199,6 +257,12 @@ if __name__ == "__main__":
         # Record agent specific episodic reward
         for agent_id in agent_ids:
             indi_agent_rewards[agent_id].append(agent_reward[agent_id])
+
+        # Record benchmark data
+        scenario = env.unwrapped.scenario
+        world    = env.unwrapped.world
+
+        infos.append(episode_info)
 
         print("-" * 15, f"Episode: {ep}", "-" * 15)
         print("Episodic Reward: ", rewards[-1])
@@ -217,6 +281,41 @@ if __name__ == "__main__":
         print(f"{agent_id} max reward: {max_reward}")
         print(f"{agent_id} std reward: {std_reward}")
         print(average_reward, min_reward, max_reward, std_reward)
+
+    #   Simple push
+    print(f"Agent's info over {episodes} episodes:")
+    total_frames = 0
+    count = 0
+
+    for ep in infos:
+        for agent_id, records in ep.items():
+            if not str(agent_id).startswith("adversary"):
+                break
+            for step_info in records:
+                total_frames += step_info
+            count += len(records)
+    
+    print("adversary average frame occupancy", total_frames / count)
+
+    #   Simple spread
+    # print(f"Agent's infos over {episodes} episodes:")
+    # total_collisions = {}
+    # total_distances = {}
+    # counts = {}
+
+    # for ep in infos:
+    #     for agent_id, records in ep.items():
+    #         for step_info in records:
+    #             # sum collisions
+    #             total_collisions[agent_id] = total_collisions.get(agent_id, 0) + step_info[1]
+    #             # sum distances
+    #             total_distances[agent_id] = total_distances.get(agent_id, 0) + step_info[2]
+    #             # count samples
+    #             counts[agent_id] = counts.get(agent_id, 0) + 1
+    # 
+    # for agent_id in counts:
+    #     print(agent_id, "average collisions", total_collisions[agent_id] / counts[agent_id])
+    #     print(agent_id, "average distances", total_distances[agent_id] / counts[agent_id])
 
     if not args.save:
         exit(0) 
