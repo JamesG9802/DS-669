@@ -123,141 +123,146 @@ def train_algorithm(env, env_name, NET_CONFIG, INIT_HP, num_envs, max_steps, use
     # TRAINING LOOP
     print("Training...")
     pbar = trange(max_steps, unit="step")
-    while np.less([agent.steps[-1] for agent in pop], max_steps).all():
-        pop_episode_scores = []
-        for agent in pop:  # Loop through population
-            state, info = env.reset()  # Reset environment at start of episode
-            scores = np.zeros(num_envs)
-            completed_episode_scores = []
-            steps = 0
 
-            if INIT_HP["CHANNELS_LAST"]:
-                state = {
-                    agent_id: np.moveaxis(s, [-1], [-3])
-                    for agent_id, s in state.items()
-                }
+    try:
+        while np.less([agent.steps[-1] for agent in pop], max_steps).all():
+            pop_episode_scores = []
+            for agent in pop:  # Loop through population
+                state, info = env.reset()  # Reset environment at start of episode
+                scores = np.zeros(num_envs)
+                completed_episode_scores = []
+                steps = 0
 
-            for idx_step in range(evo_steps // num_envs):
-
-                # Get next action from agent
-                cont_actions, discrete_action = agent.get_action(
-                    states=state, training=True, infos=info
-                )
-                if agent.discrete_actions:
-                    action = discrete_action
-                else:
-                    action = cont_actions
-
-                # Act in environment
-                try:
-                    next_state, reward, termination, truncation, info = env.step(action)
-                except Exception:
-                    print("Crashed")
-                    print(action)
-                    for i, actor in enumerate(agent.actors):
-                        # Sum all the weights of the actor
-                        actor_weight_sum = sum(p.sum() for p in actor.parameters())
-                        print(f"Sum of actor weights for agent {i}: {actor_weight_sum.item()}")
-                        for p in actor.parameters():
-                            print(p)
-                    exit()
-                scores += np.sum(np.array(list(reward.values())).transpose(), axis=-1)
-                total_steps += num_envs
-                steps += num_envs
-
-                # Image processing if necessary for the environment
                 if INIT_HP["CHANNELS_LAST"]:
-                    next_state = {
-                        agent_id: np.moveaxis(ns, [-1], [-3])
-                        for agent_id, ns in next_state.items()
+                    state = {
+                        agent_id: np.moveaxis(s, [-1], [-3])
+                        for agent_id, s in state.items()
                     }
 
-                # Save experiences to replay buffer
-                memory.save_to_memory(
-                    state,
-                    cont_actions,
-                    reward,
-                    next_state,
-                    termination,
-                    is_vectorised=True,
-                )
+                for idx_step in range(evo_steps // num_envs):
 
-                # Learn according to learning frequency
-                # Handle learn steps > num_envs
-                if agent.learn_step > num_envs:
-                    learn_step = agent.learn_step // num_envs
-                    if (
-                        idx_step % learn_step == 0
-                        and len(memory) >= agent.batch_size
-                        and memory.counter > learning_delay
+                    # Get next action from agent
+                    cont_actions, discrete_action = agent.get_action(
+                        states=state, training=True, infos=info
+                    )
+                    if agent.discrete_actions:
+                        action = discrete_action
+                    else:
+                        action = cont_actions
+
+                    # Act in environment
+                    try:
+                        next_state, reward, termination, truncation, info = env.step(action)
+                    except Exception:
+                        print("Crashed")
+                        print(action)
+                        for i, actor in enumerate(agent.actors):
+                            # Sum all the weights of the actor
+                            actor_weight_sum = sum(p.sum() for p in actor.parameters())
+                            print(f"Sum of actor weights for agent {i}: {actor_weight_sum.item()}")
+                            for p in actor.parameters():
+                                print(p)
+                        exit()
+                    scores += np.sum(np.array(list(reward.values())).transpose(), axis=-1)
+                    total_steps += num_envs
+                    steps += num_envs
+
+                    # Image processing if necessary for the environment
+                    if INIT_HP["CHANNELS_LAST"]:
+                        next_state = {
+                            agent_id: np.moveaxis(ns, [-1], [-3])
+                            for agent_id, ns in next_state.items()
+                        }
+
+                    # Save experiences to replay buffer
+                    memory.save_to_memory(
+                        state,
+                        cont_actions,
+                        reward,
+                        next_state,
+                        termination,
+                        is_vectorised=True,
+                    )
+
+                    # Learn according to learning frequency
+                    # Handle learn steps > num_envs
+                    if agent.learn_step > num_envs:
+                        learn_step = agent.learn_step // num_envs
+                        if (
+                            idx_step % learn_step == 0
+                            and len(memory) >= agent.batch_size
+                            and memory.counter > learning_delay
+                        ):
+                            # Sample replay buffer
+                            experiences = memory.sample(agent.batch_size)
+                            # Learn according to agent's RL algorithm
+                            agent.learn(experiences)
+                    # Handle num_envs > learn step; learn multiple times per step in env
+                    elif (
+                        len(memory) >= agent.batch_size and memory.counter > learning_delay
                     ):
-                        # Sample replay buffer
-                        experiences = memory.sample(agent.batch_size)
-                        # Learn according to agent's RL algorithm
-                        agent.learn(experiences)
-                # Handle num_envs > learn step; learn multiple times per step in env
-                elif (
-                    len(memory) >= agent.batch_size and memory.counter > learning_delay
-                ):
-                    for _ in range(num_envs // agent.learn_step):
-                        # Sample replay buffer
-                        experiences = memory.sample(agent.batch_size)
-                        # Learn according to agent's RL algorithm
-                        agent.learn(experiences)
+                        for _ in range(num_envs // agent.learn_step):
+                            # Sample replay buffer
+                            experiences = memory.sample(agent.batch_size)
+                            # Learn according to agent's RL algorithm
+                            agent.learn(experiences)
 
-                state = next_state
+                    state = next_state
 
-                # Calculate scores and reset noise for finished episodes
-                reset_noise_indices = []
-                term_array = np.array(list(termination.values())).transpose()
-                trunc_array = np.array(list(truncation.values())).transpose()
-                for idx, (d, t) in enumerate(zip(term_array, trunc_array)):
-                    if np.any(d) or np.any(t):
-                        completed_episode_scores.append(scores[idx])
-                        agent.scores.append(scores[idx])
-                        scores[idx] = 0
-                        reset_noise_indices.append(idx)
-                agent.reset_action_noise(reset_noise_indices)
+                    # Calculate scores and reset noise for finished episodes
+                    reset_noise_indices = []
+                    term_array = np.array(list(termination.values())).transpose()
+                    trunc_array = np.array(list(truncation.values())).transpose()
+                    for idx, (d, t) in enumerate(zip(term_array, trunc_array)):
+                        if np.any(d) or np.any(t):
+                            completed_episode_scores.append(scores[idx])
+                            agent.scores.append(scores[idx])
+                            scores[idx] = 0
+                            reset_noise_indices.append(idx)
+                    agent.reset_action_noise(reset_noise_indices)
 
-            pbar.update(evo_steps // len(pop))
+                pbar.update(evo_steps // len(pop))
 
-            agent.steps[-1] += steps
-            pop_episode_scores.append(completed_episode_scores)
+                agent.steps[-1] += steps
+                pop_episode_scores.append(completed_episode_scores)
 
-        # Evaluate population
-        fitnesses = [
-            agent.test(
-                env,
-                swap_channels=INIT_HP["CHANNELS_LAST"],
-                max_steps=eval_steps,
-                loop=eval_loop,
+            # Evaluate population
+            fitnesses = [
+                agent.test(
+                    env,
+                    swap_channels=INIT_HP["CHANNELS_LAST"],
+                    max_steps=eval_steps,
+                    loop=eval_loop,
+                )
+                for agent in pop
+            ]
+            mean_scores = [
+                (
+                    np.mean(episode_scores)
+                    if len(episode_scores) > 0
+                    else "0 completed episodes"
+                )
+                for episode_scores in pop_episode_scores
+            ]
+
+            print(f"--- Global steps {total_steps} ---")
+            print(f"Steps {[agent.steps[-1] for agent in pop]}")
+            print(f"Scores: {mean_scores}")
+            print(f'Fitnesses: {["%.2f"%fitness for fitness in fitnesses]}')
+            print(
+                f'5 fitness avgs: {["%.2f"%np.mean(agent.fitness[-5:]) for agent in pop]}'
             )
-            for agent in pop
-        ]
-        mean_scores = [
-            (
-                np.mean(episode_scores)
-                if len(episode_scores) > 0
-                else "0 completed episodes"
-            )
-            for episode_scores in pop_episode_scores
-        ]
 
-        print(f"--- Global steps {total_steps} ---")
-        print(f"Steps {[agent.steps[-1] for agent in pop]}")
-        print(f"Scores: {mean_scores}")
-        print(f'Fitnesses: {["%.2f"%fitness for fitness in fitnesses]}')
-        print(
-            f'5 fitness avgs: {["%.2f"%np.mean(agent.fitness[-5:]) for agent in pop]}'
-        )
+            # Tournament selection and population mutation
+            elite, pop = tournament.select(pop)
+            pop = mutations.mutation(pop)
 
-        # Tournament selection and population mutation
-        elite, pop = tournament.select(pop)
-        pop = mutations.mutation(pop)
+            # Update step counter
+            for agent in pop:
+                agent.steps.append(agent.steps[-1])
 
-        # Update step counter
-        for agent in pop:
-            agent.steps.append(agent.steps[-1])
+    except Exception as e:
+        print(e)
 
     # Save the trained algorithm
     algo_name = str(INIT_HP["ALGO"])
